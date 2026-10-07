@@ -135,7 +135,7 @@ jobs:
       # No `args`: installs the binary only. `just check` calls `just licences`.
       # The one place the compliance version is pinned for every repo.
       - name: Install preset-compliance
-        uses: preset-nz/compliance@v0.1.1
+        uses: preset-nz/compliance@v0.1.2
 
       - name: just check
         run: just check
