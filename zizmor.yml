@@ -1,0 +1,9 @@
+# Third-party actions are pinned by SHA. Our own preset-nz actions are pinned by tag:
+# preset-nz/compliance picks the binary to download from github.action_ref, and a SHA
+# there would fall through to "latest".
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "preset-nz/*": ref-pin
+        "*": hash-pin

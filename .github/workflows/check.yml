@@ -1,0 +1,141 @@
+# Reusable workflow: set up the repo's own toolchain, then run `just check`.
+# Nothing else runs. Whatever `check` needs beyond the toolchain belongs in the
+# repo's justfile. Docs: README.md and guidance projects/workflows.
+name: check
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label. A calling job that uses a workflow cannot set its own runner.
+        type: string
+        default: ubuntu-latest
+      rust-targets:
+        description: Extra rustup targets, space-separated (wasm32-unknown-unknown for Fault).
+        type: string
+        default: ""
+      wasm-pack:
+        description: Install wasm-pack (Fault).
+        type: boolean
+        default: false
+      tauri:
+        description: Install the Linux system libraries a Tauri 2 app needs to compile.
+        type: boolean
+        default: false
+      uv:
+        description: Install uv and Python (Oblique's sidecar, ruff and pytest).
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A newer push to the same ref makes an older run pointless.
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: just check
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # pnpm if there is a package.json; Rust if there is a rust-toolchain.toml
+      # or a Cargo.toml within two directories of the root (src-tauri/, crates/x/).
+      - name: Detect toolchains
+        id: detect
+        run: |
+          pnpm=false
+          rust=false
+          [ -f package.json ] && pnpm=true
+          if [ -f rust-toolchain.toml ] || [ -n "$(find . -maxdepth 3 -name Cargo.toml -not -path '*/node_modules/*' -not -path '*/target/*' -print -quit)" ]; then
+            rust=true
+          fi
+          # One cache entry per Cargo.lock (root, src-tauri/, playground/src-tauri/).
+          {
+            echo "pnpm=$pnpm"
+            echo "rust=$rust"
+            echo "cargo-workspaces<<EOF"
+            find . -maxdepth 3 -name Cargo.lock -not -path '*/node_modules/*' -not -path '*/target/*' \
+              | while read -r lock; do echo "$(dirname "$lock") -> target"; done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux libraries for Tauri
+        if: inputs.tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config curl wget file \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev \
+            libasound2-dev
+
+      # Version comes from `packageManager` in package.json.
+      - name: Set up pnpm
+        if: steps.detect.outputs.pnpm == 'true'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        if: steps.detect.outputs.pnpm == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        if: steps.detect.outputs.pnpm == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # The runner's rustup does the work. With a rust-toolchain.toml, a bare
+      # `rustup toolchain install` installs what the file names (channel,
+      # components, targets); the extra -c flags add to that. Without one,
+      # stable. rustup 1.28 stopped installing the file's toolchain implicitly,
+      # hence the explicit install.
+      - name: Set up Rust
+        if: steps.detect.outputs.rust == 'true'
+        env:
+          RUST_TARGETS: ${{ inputs.rust-targets }}
+        run: |
+          if [ -f rust-toolchain.toml ] || [ -f rust-toolchain ]; then
+            rustup toolchain install --profile minimal --component clippy --component rustfmt
+          else
+            rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+            rustup default stable
+          fi
+          if [ -n "$RUST_TARGETS" ]; then
+            # Word splitting is the point: the input is space-separated.
+            # shellcheck disable=SC2086
+            rustup target add $RUST_TARGETS
+          fi
+          rustc --version
+          cargo --version
+
+      - name: Cache Rust build
+        if: steps.detect.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ steps.detect.outputs.cargo-workspaces }}
+
+      - name: Set up uv
+        if: inputs.uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Install just and wasm-pack
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: just${{ inputs.wasm-pack && ',wasm-pack' || '' }}
+
+      # No `args`: installs the binary only. `just check` calls `just licences`.
+      # The one place the compliance version is pinned for every repo.
+      - name: Install preset-compliance
+        uses: preset-nz/compliance@v0.1.1
+
+      - name: just check
+        run: just check

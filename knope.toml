@@ -1,0 +1,23 @@
+# Releases: `just release`. There is no package manifest here: knope takes the current
+# version from the latest git tag (vX.Y.Z) and writes CHANGELOG.md. The first release
+# needs a baseline tag (git tag v0.1.0) on the initial commit. Pushing stays manual.
+[package]
+changelog = "CHANGELOG.md"
+
+[[workflows]]
+name = "release"
+
+[[workflows.steps]]
+type = "Command"
+command = "just check"
+
+[[workflows.steps]]
+type = "PrepareRelease"
+
+[[workflows.steps]]
+type = "Command"
+command = "git commit -m \"release: $version\""
+variables = { "$version" = "Version" }
+
+[[workflows.steps]]
+type = "Release"
