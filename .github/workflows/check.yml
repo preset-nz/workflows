@@ -26,6 +26,14 @@ on:
         description: Install uv and Python (Oblique's sidecar, ruff and pytest).
         type: boolean
         default: false
+      packages:
+        description: Clone preset-nz/packages to ../../packages, for an app that takes a package by path or link.
+        type: boolean
+        default: false
+      packages-ref:
+        description: The preset-nz/packages branch, tag or SHA to clone.
+        type: string
+        default: main
 
 permissions:
   contents: read
@@ -46,6 +54,19 @@ jobs:
         with:
           persist-credentials: false
 
+      # Where the app's committed `path = "../../packages/…"` and
+      # `link:../../packages/…` point on a machine. actions/checkout can't write
+      # outside the workspace; the repo is public, so a plain clone needs no token.
+      - name: Clone preset-nz/packages beside the app
+        if: inputs.packages
+        env:
+          PACKAGES_REF: ${{ inputs.packages-ref }}
+        run: |
+          dest="$GITHUB_WORKSPACE/../../packages"
+          git clone -q --filter=blob:none https://github.com/preset-nz/packages.git "$dest"
+          git -C "$dest" checkout -q "$PACKAGES_REF"
+          echo "preset-nz/packages at $(git -C "$dest" rev-parse --short HEAD) ($PACKAGES_REF)"
+
       # pnpm if there is a package.json; Rust if there is a rust-toolchain.toml
       # or a Cargo.toml within two directories of the root (src-tauri/, crates/x/).
       - name: Detect toolchains
@@ -54,12 +75,16 @@ jobs:
           pnpm=false
           rust=false
           [ -f package.json ] && pnpm=true
+          # A linked package resolves its own imports from its own node_modules.
+          links=false
+          if [ "$pnpm" = true ] && grep -q '"link:\.\./\.\./packages/' package.json; then links=true; fi
           if [ -f rust-toolchain.toml ] || [ -n "$(find . -maxdepth 3 -name Cargo.toml -not -path '*/node_modules/*' -not -path '*/target/*' -print -quit)" ]; then
             rust=true
           fi
           # One cache entry per Cargo.lock (root, src-tauri/, playground/src-tauri/).
           {
             echo "pnpm=$pnpm"
+            echo "links=$links"
             echo "rust=$rust"
             echo "cargo-workspaces<<EOF"
             find . -maxdepth 3 -name Cargo.lock -not -path '*/node_modules/*' -not -path '*/target/*' \
@@ -88,6 +113,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Install the linked packages' dependencies
+        if: inputs.packages && steps.detect.outputs.links == 'true'
+        run: pnpm --dir "$GITHUB_WORKSPACE/../../packages" install --frozen-lockfile
 
       - name: Install JavaScript dependencies
         if: steps.detect.outputs.pnpm == 'true'

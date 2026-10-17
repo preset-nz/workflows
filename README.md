@@ -33,7 +33,7 @@ A repo that adopts `check.yml` deletes its copied `licences.yml`: `check.yml` in
 
 ## What it does
 
-1. Checks out the repo.
+1. Checks out the repo. With `packages: true`, clones `preset-nz/packages` (at `packages-ref`) to `../../packages`, where an app's committed path and link dependencies point.
 2. With `package.json`: installs pnpm at the version in `packageManager`, Node 24 with the pnpm store cached, then `pnpm install --frozen-lockfile`.
 3. With `rust-toolchain.toml`, or a `Cargo.toml` within two directories of the root: installs Rust through rustup (the file's channel and components, else stable) with clippy and rustfmt, adds `rust-targets`, and caches with `Swatinem/rust-cache`.
 4. Installs `just`, and `preset-compliance` (binary only).
@@ -50,6 +50,8 @@ It has `permissions: contents: read`, and a newer push to the same ref cancels t
 | `wasm-pack` | boolean | `false` | Installs `wasm-pack` (Fault). |
 | `tauri` | boolean | `false` | Installs the Linux system libraries a Tauri 2 app needs to compile: webkit2gtk 4.1, GTK 3, ayatana appindicator, librsvg, OpenSSL, libxdo, ALSA headers. |
 | `uv` | boolean | `false` | Installs uv (Oblique's sidecar: ruff, pytest). |
+| `packages` | boolean | `false` | Clones `preset-nz/packages` to `../../packages`, for an app that takes a package by `path` or `link:` (Shard's rhizome and preset-docs). If `package.json` links one, installs the monorepo's JavaScript dependencies too. |
+| `packages-ref` | string | `main` | The `preset-nz/packages` branch, tag or SHA to clone. |
 
 ## Toolchains come from the repo
 
