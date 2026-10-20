@@ -1,4 +1,10 @@
 # Changelog
+## 0.1.3 (2026-10-20)
+
+### Features
+
+- install preset-compliance 0.1.3, which reads [notices]
+
 ## 0.1.2 (2026-10-17)
 
 ### Features
